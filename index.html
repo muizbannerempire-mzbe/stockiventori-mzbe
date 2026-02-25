@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockMaster - Sistem Inventori</title>
+  
+  <!-- Memuatkan Tailwind CSS untuk reka bentuk -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Memuatkan Babel untuk memproses kod React dalam pelayar (browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Import Maps: Memautkan modul (libraries) dari esm.sh -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0",
+        "firebase/app": "https://esm.sh/firebase@10.7.0/app",
+        "firebase/auth": "https://esm.sh/firebase@10.7.0/auth",
+        "firebase/firestore": "https://esm.sh/firebase@10.7.0/firestore"
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 overflow-hidden">
+  
+  <!-- Di sinilah aplikasi React akan dipaparkan -->
+  <div id="root"></div>
+
+  <!-- KOD APLIKASI UTAMA -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+    import { Package, LayoutDashboard, List, Plus, Search, Edit, Trash2, AlertTriangle, X, DollarSign, Box, TrendingUp, Image as ImageIcon, LogOut, Lock, User } from 'lucide-react';
+
+    // ==========================================
+    // 1. KONFIGURASI FIREBASE ANDA
+    // ==========================================
+    // SILA GANTIKAN KOD DI BAWAH DENGAN KONFIGURASI DARI FIREBASE CONSOLE ANDA
+    const firebaseConfig = {
+      apiKey: "LETAK_API_KEY_ANDA_DI_SINI",
+      authDomain: "projek-anda.firebaseapp.com",
+      projectId: "projek-anda",
+      storageBucket: "projek-anda.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    };
+
+    // Initialize Firebase
+    let app, auth, db;
+    const isFirebaseConfigured = firebaseConfig.apiKey !== "LETAK_API_KEY_ANDA_DI_SINI";
+    
+    if (isFirebaseConfigured) {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    }
+
+    // --- TETAPAN SYARIKAT ---
+    const COMPANY_LOGO = './logo.png';
+
+    // ==========================================
+    // KOMPONEN UTAMA (APP)
+    // ==========================================
+    function App() {
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [items, setItems] = useState([]);
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingItem, setEditingItem] = useState(null);
+      const [firebaseError, setFirebaseError] = useState(!isFirebaseConfigured);
+
+      // --- FIREBASE EFFECTS ---
+      useEffect(() => {
+        if (!isFirebaseConfigured) return;
+
+        const initAuth = async () => {
+          try {
+            await signInAnonymously(auth);
+          } catch (error) {
+            console.error("Ralat pengesahan Firebase:", error);
+          }
+        };
+        initAuth();
+
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          if (currentUser) {
+            // Sambung ke database koleksi 'inventori_barang'
+            const itemsRef = collection(db, 'inventori_barang');
+            onSnapshot(itemsRef, (snapshot) => {
+              const itemsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setItems(itemsData);
+            }, (error) => {
+              console.error("Ralat mengambil data:", error);
+            });
+          }
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // --- LOGIKA DATA ---
+      const totalItems = items.length;
+      const totalStock = items.reduce((sum, item) => sum + item.quantity, 0);
+      const totalValue = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+      const lowStockItems = items.filter(item => item.quantity <= item.minStock);
+
+      const filteredItems = useMemo(() => {
+        return items.filter(item => 
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.category.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      }, [items, searchQuery]);
+
+      // --- FUNGSI HANDLER ---
+      const handleDelete = async (id) => {
+        if (window.confirm('Adakah anda pasti mahu memadam barang ini?')) {
+          if (!isFirebaseConfigured) return alert("Firebase belum dikonfigurasi!");
+          try {
+            await deleteDoc(doc(db, 'inventori_barang', id));
+          } catch (error) {
+            console.error("Ralat memadam data:", error);
+          }
+        }
+      };
+
+      const handleSaveItem = async (itemData) => {
+        if (!isFirebaseConfigured) return alert("Firebase belum dikonfigurasi!");
+        try {
+          if (editingItem) {
+            await updateDoc(doc(db, 'inventori_barang', editingItem.id), itemData);
+          } else {
+            await addDoc(collection(db, 'inventori_barang'), itemData);
+          }
+          setIsModalOpen(false);
+          setEditingItem(null);
+        } catch (error) {
+          console.error("Ralat menyimpan data:", error);
+        }
+      };
+
+      const openAddModal = () => { setEditingItem(null); setIsModalOpen(true); };
+      const openEditModal = (item) => { setEditingItem(item); setIsModalOpen(true); };
+
+      const formatRinggit = (number) => {
+        return new Intl.NumberFormat('ms-MY', { style: 'currency', currency: 'MYR', minimumFractionDigits: 0 }).format(number);
+      };
+
+      if (!isLoggedIn) {
+        return <LoginScreen onLogin={() => setIsLoggedIn(true)} firebaseError={firebaseError} />;
+      }
+
+      return (
+        <div className="min-h-screen flex bg-gray-50 text-gray-800 font-sans">
+          
+          {/* --- SIDEBAR --- */}
+          <aside className="w-64 bg-slate-900 text-white flex flex-col hidden md:flex">
+            <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+              {COMPANY_LOGO ? (
+                <img src={COMPANY_LOGO} alt="Logo Syarikat" className="w-8 h-8 rounded object-cover bg-white p-0.5" />
+              ) : (
+                <Package className="w-8 h-8 text-blue-400" />
+              )}
+              <h1 className="text-xl font-bold tracking-tight">StockMaster</h1>
+            </div>
+            <nav className="flex-1 px-4 py-6 space-y-2">
+              <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <LayoutDashboard className="w-5 h-5" /> Papan Pemuka
+              </button>
+              <button 
+                onClick={() => setActiveTab('inventory')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'inventory' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+              >
+                <List className="w-5 h-5" /> Inventori
+              </button>
+            </nav>
+            <div className="p-4 border-t border-slate-800">
+              <button 
+                onClick={() => setIsLoggedIn(false)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-lg transition-colors"
+              >
+                <LogOut className="w-5 h-5" /> Log Keluar
+              </button>
+            </div>
+          </aside>
+
+          {/* --- MAIN CONTENT --- */}
+          <main className="flex-1 flex flex-col h-screen overflow-hidden">
+            
+            {/* Mobile Header */}
+            <header className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                {COMPANY_LOGO ? (
+                  <img src={COMPANY_LOGO} alt="Logo" className="w-6 h-6 rounded object-cover bg-white p-0.5" />
+                ) : (
+                  <Package className="w-6 h-6 text-blue-400" />
+                )}
+                <h1 className="text-lg font-bold">StockMaster</h1>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-600' : 'bg-slate-800'}`}>
+                  <LayoutDashboard className="w-5 h-5" />
+                </button>
+                <button onClick={() => setActiveTab('inventory')} className={`p-2 rounded ${activeTab === 'inventory' ? 'bg-blue-600' : 'bg-slate-800'}`}>
+                  <List className="w-5 h-5" />
+                </button>
+                <button onClick={() => setIsLoggedIn(false)} className="p-2 rounded bg-red-500/20 text-red-400">
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-auto p-6 lg:p-10">
+              {firebaseError && (
+                <div className="mb-6 p-4 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-xl flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold">Firebase Belum Dikonfigurasi</h4>
+                    <p className="text-sm">Buka fail `index.html` dan masukkan maklumat Firebase anda di bahagian <code>firebaseConfig</code> supaya data boleh disimpan.</p>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'dashboard' ? (
+                <Dashboard 
+                  totalItems={totalItems} 
+                  totalStock={totalStock} 
+                  totalValue={totalValue} 
+                  lowStockItems={lowStockItems}
+                  formatRinggit={formatRinggit}
+                  setActiveTab={setActiveTab}
+                />
+              ) : (
+                <Inventory 
+                  items={filteredItems} 
+                  searchQuery={searchQuery} 
+                  setSearchQuery={setSearchQuery}
+                  onAdd={openAddModal}
+                  onEdit={openEditModal}
+                  onDelete={handleDelete}
+                  formatRinggit={formatRinggit}
+                />
+              )}
+            </div>
+          </main>
+
+          {isModalOpen && (
+            <ItemModal item={editingItem} onClose={() => setIsModalOpen(false)} onSave={handleSaveItem} />
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // KOMPONEN DASBOR
+    // ==========================================
+    function Dashboard({ totalItems, totalStock, totalValue, lowStockItems, formatRinggit, setActiveTab }) {
+      return (
+        <div className="max-w-6xl mx-auto space-y-6">
+          <div className="flex justify-between items-end mb-8">
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">Papan Pemuka</h2>
+              <p className="text-gray-500 mt-1">Ringkasan status inventori anda buat masa ini.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-4 bg-blue-50 text-blue-600 rounded-xl"><Box className="w-8 h-8" /></div>
+              <div><p className="text-sm font-medium text-gray-500">Jumlah Jenis Barang</p><h3 className="text-2xl font-bold text-gray-900">{totalItems}</h3></div>
+            </div>
+            
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-4 bg-green-50 text-green-600 rounded-xl"><TrendingUp className="w-8 h-8" /></div>
+              <div><p className="text-sm font-medium text-gray-500">Jumlah Unit Stok</p><h3 className="text-2xl font-bold text-gray-900">{totalStock}</h3></div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-4 bg-purple-50 text-purple-600 rounded-xl"><DollarSign className="w-8 h-8" /></div>
+              <div><p className="text-sm font-medium text-gray-500">Jumlah Nilai Stok</p><h3 className="text-2xl font-bold text-gray-900">{formatRinggit(totalValue)}</h3></div>
+            </div>
+          </div>
+
+          <div className="mt-8 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-red-50/30">
+              <div className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="text-lg font-semibold">Amaran Stok Rendah</h3>
+              </div>
+            </div>
+            <div className="p-0">
+              {lowStockItems.length > 0 ? (
+                <div className="divide-y divide-gray-100">
+                  {lowStockItems.map(item => (
+                    <div key={item.id} className="p-4 px-6 flex justify-between items-center hover:bg-gray-50">
+                      <div className="flex items-center gap-4">
+                        {item.image ? <img src={item.image} alt={item.name} className="w-12 h-12 rounded-lg object-cover border" /> : <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 border"><ImageIcon className="w-5 h-5" /></div>}
+                        <div><h4 className="font-medium text-gray-900">{item.name}</h4><p className="text-sm text-gray-500">SKU: {item.sku}</p></div>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">Baki {item.quantity} unit</span>
+                        <p className="text-xs text-gray-500 mt-1">Min. stok: {item.minStock}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-gray-500"><p>Semua stok barang dalam keadaan selamat.</p></div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // KOMPONEN INVENTARIS
+    // ==========================================
+    function Inventory({ items, searchQuery, setSearchQuery, onAdd, onEdit, onDelete, formatRinggit }) {
+      return (
+        <div className="max-w-6xl mx-auto space-y-6 flex flex-col h-full">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">Senarai Inventori</h2>
+            </div>
+            <button onClick={onAdd} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors">
+              <Plus className="w-5 h-5" /> Tambah Barang
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex-1 flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-gray-100">
+              <div className="relative max-w-md">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div>
+                <input type="text" placeholder="Cari nama barang, SKU, atau kategori..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Gambar</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Info Barang</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Kategori</th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Harga</th>
+                    <th scope="col" className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Stok</th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Tindakan</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {items.length > 0 ? items.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {item.image ? <img src={item.image} alt={item.name} className="w-10 h-10 rounded-md object-cover border" /> : <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center text-gray-400 border"><ImageIcon className="w-4 h-4" /></div>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                        <div className="text-sm text-gray-500">{item.sku}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap"><span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-slate-100 text-slate-800">{item.category}</span></td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">{formatRinggit(item.price)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-sm font-bold ${item.quantity <= item.minStock ? 'text-red-600' : 'text-gray-900'}`}>{item.quantity}</span>
+                          {item.quantity <= item.minStock && <span className="text-[10px] text-red-500 mt-0.5">Rendah</span>}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => onEdit(item)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit className="w-4 h-4" /></button>
+                          <button onClick={() => onDelete(item.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan="6" className="px-6 py-12 text-center text-gray-500">Tiada barang dijumpai</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // KOMPONEN MODAL (TAMBAH/SUNTING)
+    // ==========================================
+    function ItemModal({ item, onClose, onSave }) {
+      const isEdit = !!item;
+      const [formData, setFormData] = useState({
+        name: item?.name || '', sku: item?.sku || '', category: item?.category || '', price: item?.price || '', quantity: item?.quantity || '', minStock: item?.minStock || 5, image: item?.image || '',
+      });
+
+      const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+      
+      const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setFormData(prev => ({ ...prev, image: reader.result }));
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave({ ...formData, price: Number(formData.price), quantity: Number(formData.quantity), minStock: Number(formData.minStock) });
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md my-8">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="text-lg font-bold">{isEdit ? 'Sunting Barang' : 'Tambah Barang Baru'}</h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="flex flex-col items-center gap-3 pb-2">
+                <div className="relative w-24 h-24 rounded-xl border-2 border-dashed flex items-center justify-center overflow-hidden bg-gray-50 hover:bg-gray-100 cursor-pointer">
+                  {formData.image ? <img src={formData.image} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400 font-medium text-center">Muat Naik<br/>Gambar</span>}
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </div>
+                {formData.image && <button type="button" onClick={() => setFormData(prev => ({ ...prev, image: '' }))} className="text-xs text-red-500">Buang Gambar</button>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Barang *</label>
+                <input type="text" name="name" required value={formData.name} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">SKU / Kod *</label><input type="text" name="sku" required value={formData.sku} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Kategori *</label><input type="text" name="category" required value={formData.category} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" /></div>
+              </div>
+
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Harga (RM) *</label><input type="number" name="price" min="0" required value={formData.price} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" /></div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Stok Awal *</label><input type="number" name="quantity" min="0" required value={formData.quantity} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Min. Stok</label><input type="number" name="minStock" min="0" required value={formData.minStock} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg outline-none focus:border-blue-500" /></div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 mt-6">
+                <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Batal</button>
+                <button type="submit" className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700">Simpan Barang</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // KOMPONEN LOG MASUK (LOGIN)
+    // ==========================================
+    function LoginScreen({ onLogin, firebaseError }) {
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (username === 'mzbe2022' && password === 'mzbe2022') {
+          onLogin();
+        } else {
+          setError('Nama pengguna atau kata laluan salah!');
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 font-sans">
+          <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-blue-50 mb-4 overflow-hidden border-2 border-blue-100">
+                {COMPANY_LOGO ? <img src={COMPANY_LOGO} className="h-full w-full object-cover" /> : <Package className="h-10 w-10 text-blue-600" />}
+              </div>
+              <h2 className="mt-2 text-3xl font-extrabold text-gray-900">StockMaster</h2>
+              <p className="mt-2 text-sm text-gray-500">Sila log masuk ke akaun anda</p>
+            </div>
+            
+            <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+              {firebaseError && (
+                <div className="bg-yellow-50 text-yellow-700 p-3 rounded-lg text-xs font-semibold mb-4 text-center">
+                  Sila isikan 'firebaseConfig' di dalam kod terlebih dahulu.
+                </div>
+              )}
+              {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertTriangle className="w-5 h-5" />{error}</div>}
+              
+              <div className="space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center"><User className="h-5 w-5 text-gray-400" /></div>
+                  <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nama pengguna" />
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center"><Lock className="h-5 w-5 text-gray-400" /></div>
+                  <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••" />
+                </div>
+              </div>
+              <button type="submit" className="w-full py-2.5 px-4 rounded-lg font-medium text-white bg-blue-600 hover:bg-blue-700">Log Masuk</button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // Render ke DOM
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
