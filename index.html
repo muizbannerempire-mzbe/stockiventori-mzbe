@@ -18,9 +18,9 @@
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
-        "firebase/app": "https://esm.sh/firebase@10.7.0/app",
-        "firebase/auth": "https://esm.sh/firebase@10.7.0/auth",
-        "firebase/firestore": "https://esm.sh/firebase@10.7.0/firestore"
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"
       }
     }
   </script>
@@ -42,14 +42,13 @@
     // ==========================================
     // 1. KONFIGURASI FIREBASE ANDA
     // ==========================================
-    // SILA GANTIKAN KOD DI BAWAH DENGAN KONFIGURASI DARI FIREBASE CONSOLE ANDA
     const firebaseConfig = {
-      apiKey: "LETAK_API_KEY_ANDA_DI_SINI",
-      authDomain: "projek-anda.firebaseapp.com",
-      projectId: "projek-anda",
-      storageBucket: "projek-anda.appspot.com",
-      messagingSenderId: "123456789",
-      appId: "1:123456789:web:abcdef"
+      apiKey: "AIzaSyDGbiOFlDAPML2JW75lehixdmsGi62DWPU",
+      authDomain: "stok-dan-inventori.firebaseapp.com",
+      projectId: "stok-dan-inventori",
+      storageBucket: "stok-dan-inventori.firebasestorage.app",
+      messagingSenderId: "419063045971",
+      appId: "1:419063045971:web:bd1b98dc78aaa70b354ba6"
     };
 
     // Initialize Firebase
@@ -63,7 +62,7 @@
     }
 
     // --- TETAPAN SYARIKAT ---
-    const COMPANY_LOGO = './logo.png';
+    const COMPANY_LOGO = './logo.png'; // Pastikan gambar dinamakan logo.png
 
     // ==========================================
     // KOMPONEN UTAMA (APP)
@@ -76,6 +75,7 @@
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingItem, setEditingItem] = useState(null);
       const [firebaseError, setFirebaseError] = useState(!isFirebaseConfigured);
+      const [authError, setAuthError] = useState(''); // State baharu untuk paparkan ralat Auth
 
       // --- FIREBASE EFFECTS ---
       useEffect(() => {
@@ -86,6 +86,13 @@
             await signInAnonymously(auth);
           } catch (error) {
             console.error("Ralat pengesahan Firebase:", error);
+            if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+              setAuthError("Perkhidmatan Log Masuk belum diaktifkan. Sila pergi ke Firebase Console > Authentication > Sign-in method > Aktifkan 'Anonymous'.");
+            } else if (error.code === 'auth/admin-restricted-operation') {
+              setAuthError("Laman web ini belum dibenarkan. Sila buka Firebase Console > Authentication > tab 'Settings' > 'Authorized domains'. Klik 'Add domain' dan masukkan pautan laman GitHub anda (contoh: muizbannerempire-mzbe.github.io).");
+            } else {
+              setAuthError("Ralat Firebase: " + error.message);
+            }
           }
         };
         initAuth();
@@ -127,6 +134,7 @@
             await deleteDoc(doc(db, 'inventori_barang', id));
           } catch (error) {
             console.error("Ralat memadam data:", error);
+            alert("Ralat memadam data. Sila pastikan anda telah tetapkan Firestore Rules (Langkah 3).");
           }
         }
       };
@@ -143,6 +151,7 @@
           setEditingItem(null);
         } catch (error) {
           console.error("Ralat menyimpan data:", error);
+          alert("Gagal menyimpan data! Adakah anda sudah menetapkan Firestore Rules dan mengaktifkan Authentication Anonymous di Firebase? (Rujuk Langkah 3 & 4)");
         }
       };
 
@@ -154,7 +163,7 @@
       };
 
       if (!isLoggedIn) {
-        return <LoginScreen onLogin={() => setIsLoggedIn(true)} firebaseError={firebaseError} />;
+        return <LoginScreen onLogin={() => setIsLoggedIn(true)} firebaseError={firebaseError} authError={authError} />;
       }
 
       return (
@@ -465,7 +474,7 @@
     // ==========================================
     // KOMPONEN LOG MASUK (LOGIN)
     // ==========================================
-    function LoginScreen({ onLogin, firebaseError }) {
+    function LoginScreen({ onLogin, firebaseError, authError }) {
       const [username, setUsername] = useState('');
       const [password, setPassword] = useState('');
       const [error, setError] = useState('');
@@ -494,6 +503,15 @@
               {firebaseError && (
                 <div className="bg-yellow-50 text-yellow-700 p-3 rounded-lg text-xs font-semibold mb-4 text-center">
                   Sila isikan 'firebaseConfig' di dalam kod terlebih dahulu.
+                </div>
+              )}
+              {authError && (
+                <div className="bg-orange-50 text-orange-700 p-3 rounded-lg text-sm flex items-start gap-2 border border-orange-200 mb-4">
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Ralat Keselamatan Domain:</span>
+                    {authError}
+                  </div>
                 </div>
               )}
               {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertTriangle className="w-5 h-5" />{error}</div>}
