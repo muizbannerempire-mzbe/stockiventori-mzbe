@@ -72,6 +72,8 @@
       const [items, setItems] = useState([]);
       const [activeTab, setActiveTab] = useState('dashboard');
       const [searchQuery, setSearchQuery] = useState('');
+      const [filterCategory, setFilterCategory] = useState('');
+      const [filterStock, setFilterStock] = useState('');
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingItem, setEditingItem] = useState(null);
       const [firebaseError, setFirebaseError] = useState(!isFirebaseConfigured);
@@ -118,13 +120,20 @@
       const totalValue = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
       const lowStockItems = items.filter(item => item.quantity <= item.minStock);
 
+      const categories = useMemo(() => [...new Set(items.map(i => i.category))], [items]);
+
       const filteredItems = useMemo(() => {
-        return items.filter(item => 
-          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.category.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-      }, [items, searchQuery]);
+        return items.filter(item => {
+          const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                item.category.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchesCategory = filterCategory === '' || item.category === filterCategory;
+          const matchesStock = filterStock === '' || filterStock === 'all' ||
+                               (filterStock === 'low' && item.quantity <= item.minStock) ||
+                               (filterStock === 'inStock' && item.quantity > item.minStock);
+          return matchesSearch && matchesCategory && matchesStock;
+        });
+      }, [items, searchQuery, filterCategory, filterStock]);
 
       // --- FUNGSI HANDLER ---
       const handleDelete = async (id) => {
@@ -254,6 +263,11 @@
                   items={filteredItems} 
                   searchQuery={searchQuery} 
                   setSearchQuery={setSearchQuery}
+                  filterCategory={filterCategory}
+                  setFilterCategory={setFilterCategory}
+                  filterStock={filterStock}
+                  setFilterStock={setFilterStock}
+                  categories={categories}
                   onAdd={openAddModal}
                   onEdit={openEditModal}
                   onDelete={handleDelete}
@@ -335,7 +349,7 @@
     // ==========================================
     // KOMPONEN INVENTARIS
     // ==========================================
-    function Inventory({ items, searchQuery, setSearchQuery, onAdd, onEdit, onDelete, formatRinggit }) {
+    function Inventory({ items, searchQuery, setSearchQuery, filterCategory, setFilterCategory, filterStock, setFilterStock, categories, onAdd, onEdit, onDelete, formatRinggit }) {
       const handleExportCSV = () => {
         const headers = ['Nama Barang', 'SKU', 'Kategori', 'Harga (RM)', 'Stok', 'Min. Stok'];
         const csvRows = items.map(item => [
@@ -381,11 +395,20 @@
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex-1 flex flex-col overflow-hidden print:shadow-none print:border-none print:block">
-            <div className="p-4 border-b border-gray-100 print:hidden">
-              <div className="relative max-w-md">
+            <div className="p-4 border-b border-gray-100 print:hidden flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-gray-400" /></div>
                 <input type="text" placeholder="Cari nama barang, SKU, atau kategori..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
               </div>
+              <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[160px] text-sm">
+                <option value="">Semua Kategori</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={filterStock} onChange={(e) => setFilterStock(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none min-w-[160px] text-sm">
+                <option value="">Semua Status Stok</option>
+                <option value="inStock">Stok Cukup</option>
+                <option value="low">Stok Rendah</option>
+              </select>
             </div>
 
             <div className="flex-1 overflow-auto print:overflow-visible">
